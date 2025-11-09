@@ -24,22 +24,24 @@
 /
 ├── .github/
 │   └── workflows/
-│       └── main.yml        # CI: pytest만 실행
+│       └── main.yml           # CI: pytest + k6 부하 테스트
 ├── app/
 │   ├── __init__.py
-│   ├── main.py             # FastAPI 앱 (엔드포인트)
-│   ├── models.py           # SQLAlchemy 모델 (Post)
-│   ├── schemas.py          # Pydantic 스키마
-│   ├── crud.py             # 🔥 병목 로직 포함
-│   └── database.py         # SQLite 설정
+│   ├── main.py                # FastAPI 앱 (엔드포인트)
+│   ├── models.py              # SQLAlchemy 모델 (Post)
+│   ├── schemas.py             # Pydantic 스키마
+│   ├── crud.py                # 🔥 병목 로직 포함
+│   └── database.py            # SQLite 설정
 ├── tests/
-│   └── test_api.py         # 기능 테스트 (성능 미검증)
+│   └── test_api.py            # 기능 테스트 (성능 미검증)
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
-├── Dockerfile           # FastAPI 앱 도커파일
-├── docker-compose.yml      # Prometheus 및 Grafana 설정
-└── init_db.py              # DB 초기화 스크립트
+├── Dockerfile                 # FastAPI 앱 도커파일
+├── docker-compose.yml         # Prometheus 및 Grafana 설정
+├── k6-test.js                 # k6 부하 테스트 (slow endpoint)
+├── k6-test-fast.js            # k6 부하 테스트 (fast endpoint)
+└── init_db.py                 # DB 초기화 스크립트
 ```
 
 ## 🚀 로컬 환경 설정
@@ -188,9 +190,9 @@ pytest -v
 
 ### 5. 부하 테스트 실행 (k6)
 
-#### 기본 부하 테스트 스크립트 생성
+#### 병목 엔드포인트 부하 테스트
 
-`k6-test.js` 파일을 생성합니다:
+프로젝트에 포함된 `k6-test.js` 파일:
 
 ```javascript
 import http from "k6/http";
@@ -200,15 +202,17 @@ export const options = {
   stages: [
     { duration: "10s", target: 10 }, // 10초 동안 10명의 가상 사용자로 증가
     { duration: "20s", target: 10 }, // 20초 동안 10명 유지
-    { duration: "10s", target: 0 }, // 10초 동안 0명으로 감소
+    { duration: "10s", target: 0 },  // 10초 동안 0명으로 감소
   ],
   thresholds: {
     http_req_duration: ["p(95)<500"], // 95%의 요청이 500ms 이내여야 함
+    http_req_failed: ["rate<0.01"],   // 실패율이 1% 미만이어야 함
   },
 };
 
 export default function () {
-  const res = http.get("http://127.0.0.1:8000/api/posts/v1/slow");
+  const BASE_URL = __ENV.BASE_URL || "http://127.0.0.1:8000";
+  const res = http.get(`${BASE_URL}/api/posts/v1/slow`);
 
   check(res, {
     "status is 200": (r) => r.status === 200,
@@ -222,6 +226,10 @@ export default function () {
 #### k6 실행
 
 ```bash
+# 로컬 서버 테스트
+k6 run k6-test.js
+
+# Prometheus와 연동하여 테스트
 k6 run k6-test.js --out experimental-prometheus-rw=http://localhost:9090/api/v1/write
 ```
 
@@ -229,7 +237,7 @@ k6 run k6-test.js --out experimental-prometheus-rw=http://localhost:9090/api/v1/
 
 #### 최적화된 엔드포인트 테스트
 
-`k6-test-fast.js`:
+프로젝트에 포함된 `k6-test-fast.js` 파일:
 
 ```javascript
 import http from "k6/http";
@@ -237,17 +245,19 @@ import { check, sleep } from "k6";
 
 export const options = {
   stages: [
-    { duration: "10s", target: 10 },
-    { duration: "20s", target: 10 },
-    { duration: "10s", target: 0 },
+    { duration: "10s", target: 10 }, // 10초 동안 10명의 가상 사용자로 증가
+    { duration: "20s", target: 10 }, // 20초 동안 10명 유지
+    { duration: "10s", target: 0 },  // 10초 동안 0명으로 감소
   ],
   thresholds: {
-    http_req_duration: ["p(95)<500"],
+    http_req_duration: ["p(95)<500"], // 95%의 요청이 500ms 이내여야 함
+    http_req_failed: ["rate<0.01"],   // 실패율이 1% 미만이어야 함
   },
 };
 
 export default function () {
-  const res = http.get("http://127.0.0.1:8000/api/posts/v2/fast");
+  const BASE_URL = __ENV.BASE_URL || "http://127.0.0.1:8000";
+  const res = http.get(`${BASE_URL}/api/posts/v2/fast`);
 
   check(res, {
     "status is 200": (r) => r.status === 200,
@@ -259,6 +269,10 @@ export default function () {
 ```
 
 ```bash
+# 로컬 서버 테스트
+k6 run k6-test-fast.js
+
+# Prometheus와 연동하여 테스트
 k6 run k6-test-fast.js --out experimental-prometheus-rw=http://localhost:9090/api/v1/write
 ```
 
@@ -291,11 +305,84 @@ def get_posts_slow(db: Session):
 
 ## 📊 CI/CD
 
-GitHub Actions를 통해 `pytest`만 자동으로 실행됩니다:
+GitHub Actions를 통해 자동으로 테스트가 실행됩니다.
 
-- `.github/workflows/main.yml` 참고
-- k6 부하 테스트는 CI에 포함되어 있지 않음
-- 라이브 코딩에서 k6를 CI에 추가하는 과정 시연 예정
+### CI 파이프라인 구조
+
+`.github/workflows/main.yml`에는 3개의 job이 정의되어 있습니다:
+
+#### 1. `test` - 단위 테스트
+
+```yaml
+- Python 3.10 설정
+- 의존성 설치
+- 데이터베이스 초기화
+- pytest 실행
+```
+
+**목적**: 기능이 정상적으로 동작하는지 검증
+
+#### 2. `load-test-slow` - 병목 엔드포인트 부하 테스트
+
+```yaml
+- Python 3.10 설정
+- k6 설치
+- FastAPI 서버 실행
+- /api/posts/v1/slow 엔드포인트에 k6 부하 테스트 실행
+- continue-on-error: true (의도적 실패 허용)
+```
+
+**목적**:
+- 병목이 있는 엔드포인트의 성능 문제를 CI에서 확인
+- `continue-on-error: true` 설정으로 실패해도 CI 전체는 통과
+- 라이브 코딩에서 "CI는 통과하지만 성능 문제가 있음"을 시연
+
+**예상 결과**: ❌ 실패 (응답 시간 > 2초)
+
+#### 3. `load-test-fast` - 최적화된 엔드포인트 부하 테스트
+
+```yaml
+- Python 3.10 설정
+- k6 설치
+- FastAPI 서버 실행
+- /api/posts/v2/fast 엔드포인트에 k6 부하 테스트 실행
+```
+
+**목적**: 최적화된 엔드포인트가 성능 기준을 만족하는지 검증
+
+**예상 결과**: ✅ 통과 (응답 시간 < 500ms)
+
+### k6 성능 기준 (Thresholds)
+
+모든 k6 테스트는 다음 기준을 적용합니다:
+
+```javascript
+thresholds: {
+  http_req_duration: ["p(95)<500"],  // 95th percentile < 500ms
+  http_req_failed: ["rate<0.01"],    // 실패율 < 1%
+}
+```
+
+### CI 실행 조건
+
+- `push` 또는 `pull_request`가 `main`, `master` 브랜치에 발생할 때 자동 실행
+- 세 개의 job이 병렬로 실행됨
+
+### 로컬에서 CI 재현하기
+
+```bash
+# 1. 단위 테스트
+pytest -v
+
+# 2. 서버 실행
+uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+
+# 3. k6 부하 테스트 (slow)
+k6 run k6-test.js -e BASE_URL=http://127.0.0.1:8000
+
+# 4. k6 부하 테스트 (fast)
+k6 run k6-test-fast.js -e BASE_URL=http://127.0.0.1:8000
+```
 
 ## 🛠️ 기술 스택
 
