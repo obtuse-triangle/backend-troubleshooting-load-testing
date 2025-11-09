@@ -37,6 +37,7 @@
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
+├── docker-compose.yml      # Prometheus 및 Grafana 설정
 └── init_db.py              # DB 초기화 스크립트
 ```
 
@@ -74,11 +75,13 @@ pip install -r requirements.txt
 - **공식 설치 가이드**: https://k6.io/docs/getting-started/installation/
 
 #### macOS (Homebrew)
+
 ```bash
 brew install k6
 ```
 
 #### Linux (Debian/Ubuntu)
+
 ```bash
 sudo gpg -k
 sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
@@ -88,9 +91,22 @@ sudo apt-get install k6
 ```
 
 #### Windows (Chocolatey)
+
 ```powershell
 choco install k6
 ```
+
+### 5. Docker Compose 구동
+
+Prometheus와 Grafana를 실행합니다:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+- `http://localhost:3000` 에서 Grafana에 접속할 수 있습니다 (기본 로그인: admin/admin).
+- `http://localhost:9090` 에서 Prometheus에 접속할 수 있습니다.
 
 ## 📋 실행 방법
 
@@ -140,26 +156,26 @@ pytest -v
 `k6-test.js` 파일을 생성합니다:
 
 ```javascript
-import http from 'k6/http';
-import { check, sleep } from 'k6';
+import http from "k6/http";
+import { check, sleep } from "k6";
 
 export const options = {
   stages: [
-    { duration: '10s', target: 10 },  // 10초 동안 10명의 가상 사용자로 증가
-    { duration: '20s', target: 10 },  // 20초 동안 10명 유지
-    { duration: '10s', target: 0 },   // 10초 동안 0명으로 감소
+    { duration: "10s", target: 10 }, // 10초 동안 10명의 가상 사용자로 증가
+    { duration: "20s", target: 10 }, // 20초 동안 10명 유지
+    { duration: "10s", target: 0 }, // 10초 동안 0명으로 감소
   ],
   thresholds: {
-    http_req_duration: ['p(95)<500'], // 95%의 요청이 500ms 이내여야 함
+    http_req_duration: ["p(95)<500"], // 95%의 요청이 500ms 이내여야 함
   },
 };
 
 export default function () {
-  const res = http.get('http://127.0.0.1:8000/api/posts/v1/slow');
+  const res = http.get("http://127.0.0.1:8000/api/posts/v1/slow");
 
   check(res, {
-    'status is 200': (r) => r.status === 200,
-    'response time < 500ms': (r) => r.timings.duration < 500,
+    "status is 200": (r) => r.status === 200,
+    "response time < 500ms": (r) => r.timings.duration < 500,
   });
 
   sleep(1);
@@ -169,7 +185,7 @@ export default function () {
 #### k6 실행
 
 ```bash
-k6 run k6-test.js
+k6 run k6-test.js --out experimental-prometheus-rw=http://localhost:9090/api/v1/write
 ```
 
 **예상 결과**: `/v1/slow` 엔드포인트는 응답 시간이 2초 이상 걸리므로 **실패**합니다.
@@ -179,26 +195,26 @@ k6 run k6-test.js
 `k6-test-fast.js`:
 
 ```javascript
-import http from 'k6/http';
-import { check, sleep } from 'k6';
+import http from "k6/http";
+import { check, sleep } from "k6";
 
 export const options = {
   stages: [
-    { duration: '10s', target: 10 },
-    { duration: '20s', target: 10 },
-    { duration: '10s', target: 0 },
+    { duration: "10s", target: 10 },
+    { duration: "20s", target: 10 },
+    { duration: "10s", target: 0 },
   ],
   thresholds: {
-    http_req_duration: ['p(95)<500'],
+    http_req_duration: ["p(95)<500"],
   },
 };
 
 export default function () {
-  const res = http.get('http://127.0.0.1:8000/api/posts/v2/fast');
+  const res = http.get("http://127.0.0.1:8000/api/posts/v2/fast");
 
   check(res, {
-    'status is 200': (r) => r.status === 200,
-    'response time < 500ms': (r) => r.timings.duration < 500,
+    "status is 200": (r) => r.status === 200,
+    "response time < 500ms": (r) => r.timings.duration < 500,
   });
 
   sleep(1);
@@ -206,7 +222,7 @@ export default function () {
 ```
 
 ```bash
-k6 run k6-test-fast.js
+k6 run k6-test-fast.js --out experimental-prometheus-rw=http://localhost:9090/api/v1/write
 ```
 
 **예상 결과**: `/v2/fast` 엔드포인트는 `time.sleep()`이 없으므로 **통과**합니다.
@@ -251,6 +267,8 @@ GitHub Actions를 통해 `pytest`만 자동으로 실행됩니다:
 - **SQLite**: 데이터베이스
 - **Pytest**: 단위 테스트
 - **k6**: 부하 테스트
+- **Prometheus**: 메트릭 수집
+- **Grafana**: 메트릭 시각화
 
 ## 📝 학습 목표
 
@@ -259,12 +277,15 @@ GitHub Actions를 통해 `pytest`만 자동으로 실행됩니다:
 3. ⚡ **성능 최적화** 방법 학습
 4. 📊 **k6를 활용한 부하 테스트** 실습
 5. 🚀 **CI/CD에 성능 테스트 통합**
+6. 📈 **Prometheus와 Grafana**로 메트릭 시각화
 
 ## 📚 참고 자료
 
 - [FastAPI 공식 문서](https://fastapi.tiangolo.com/)
 - [k6 공식 문서](https://k6.io/docs/)
 - [SQLAlchemy 공식 문서](https://docs.sqlalchemy.org/)
+- [Prometheus 공식 문서](https://prometheus.io/docs/introduction/overview/)
+- [Grafana 공식 문서](https://grafana.com/docs/grafana/latest/)
 
 ## 🤝 기여
 
