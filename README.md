@@ -37,6 +37,7 @@
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
+├── Dockerfile           # FastAPI 앱 도커파일
 ├── docker-compose.yml      # Prometheus 및 Grafana 설정
 └── init_db.py              # DB 초기화 스크립트
 ```
@@ -96,17 +97,50 @@ sudo apt-get install k6
 choco install k6
 ```
 
-### 5. Docker Compose 구동
+### 5. Docker Compose 구동 (FastAPI, Prometheus, Grafana 모두 실행)
 
-Prometheus와 Grafana를 실행합니다:
+FastAPI 앱, Prometheus, Grafana를 한 번에 실행합니다:
 
 ```bash
 docker compose pull
-docker compose up -d
+docker compose up --build -d
 ```
 
-- `http://localhost:3000` 에서 Grafana에 접속할 수 있습니다 (기본 로그인: admin/admin).
-- `http://localhost:9090` 에서 Prometheus에 접속할 수 있습니다.
+- `http://localhost:8000` 에서 FastAPI API에 접속할 수 있습니다
+- `http://localhost:9090` 에서 Prometheus에 접속할 수 있습니다
+- `http://localhost:3000` 에서 Grafana에 접속할 수 있습니다 (기본 로그인: admin/admin)
+
+#### FastAPI 서비스 Dockerfile
+
+루트 디렉토리에 아래와 같이 Dockerfile이 포함되어 있습니다:
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app/ app/
+COPY init_db.py ./
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+docker-compose.yml에 fastapi 서비스가 추가되어 있습니다:
+
+```yaml
+fastapi:
+  build: .
+  container_name: fastapi-app
+  ports:
+    - "8000:8000"
+  volumes:
+    - ./app:/app/app
+    - ./init_db.py:/app/init_db.py
+    - ./requirements.txt:/app/requirements.txt
+  command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+  depends_on:
+    - prometheus
+```
 
 ## 📋 실행 방법
 
@@ -120,25 +154,28 @@ python init_db.py
 
 ### 2. 서버 실행
 
+FastAPI 서버도 docker compose로 실행됩니다:
+
 ```bash
-uvicorn app.main:app --reload
+docker compose up --build -d
 ```
 
-서버가 http://127.0.0.1:8000 에서 실행됩니다.
+서버가 http://localhost:8000 에서 실행됩니다.
 
 ### 3. 엔드포인트 확인
 
 브라우저 또는 curl로 확인:
 
 ```bash
+
 # 루트 엔드포인트
-curl http://127.0.0.1:8000/
+curl http://localhost:8000/
 
 # 병목이 있는 엔드포인트 (느림 🐌)
-curl http://127.0.0.1:8000/api/posts/v1/slow
+curl http://localhost:8000/api/posts/v1/slow
 
 # 최적화된 엔드포인트 (빠름 ⚡)
-curl http://127.0.0.1:8000/api/posts/v2/fast
+curl http://localhost:8000/api/posts/v2/fast
 ```
 
 ### 4. 기능 테스트 실행

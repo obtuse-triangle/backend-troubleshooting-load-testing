@@ -1,6 +1,18 @@
 version: "3.7"
 
 services:
+  fastapi:
+    build: .
+    container_name: fastapi-app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./init_db.py:/app/init_db.py
+      - ./requirements.txt:/app/requirements.txt
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      - prometheus
   prometheus: # 1. 'influxdb' -> 'prometheus'로 변경
     image: prom/prometheus:latest # 2. ARM64를 지원하는 공식 이미지
     container_name: prometheus
@@ -9,8 +21,8 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml # 4. Prometheus 설정 파일 마운트
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--web.enable-remote-write-receiver' # 5. k6가 데이터를 쓸 수 있게 함 (매우 중요)
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-remote-write-receiver" # 5. k6가 데이터를 쓸 수 있게 함 (매우 중요)
   granafa:
     image: grafana/grafana:latest
     ports:
