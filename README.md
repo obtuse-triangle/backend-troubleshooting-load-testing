@@ -264,38 +264,63 @@ k6 run k6-test-fast.js --out experimental-prometheus-rw=http://localhost:9090/ap
 
 **예상 결과**: `/v2/fast` 엔드포인트는 `time.sleep()`이 없으므로 **통과**합니다.
 
-## 🔍 병목 찾기 실습
+### 6. Grafana에서 메트릭 시각화
 
-### 병목의 위치
+- Grafana 대시보드에 접속: `http://localhost:3000`
+- 기본 로그인: `admin` / `admin`
+- 아래 대시보드를 추가합니다.
 
-`app/crud.py`의 `get_posts_slow()` 함수:
+- https://grafana.com/grafana/dashboards/21542-k6-prome-load-test/
+- https://grafana.com/grafana/dashboards/18030-k6-prometheus-native-histograms/
 
-```python
-def get_posts_slow(db: Session):
-    posts = db.query(Post).all()
-
-    # 🔥 병목: 각 Post를 순회하며 20ms씩 지연
-    for post in posts:
-        time.sleep(0.02)  # N+1 문제 시뮬레이션
-
-    return posts
-```
-
-### 해결 방법
-
-라이브 코딩 발표에서는 다음과 같은 방법으로 병목을 해결합니다:
-
-1. **프로파일링**: `cProfile`, `line_profiler` 등으로 병목 위치 파악
-2. **코드 분석**: `time.sleep()` 호출 제거
-3. **검증**: k6로 개선 확인
+해당 대시보드를 임포트하여 k6 메트릭을 시각화할 수 있습니다.
 
 ## 📊 CI/CD
 
-GitHub Actions를 통해 `pytest`만 자동으로 실행됩니다:
+현재 GitHub Actions를 통해 `pytest`만 자동으로 실행됩니다:
 
-- `.github/workflows/main.yml` 참고
-- k6 부하 테스트는 CI에 포함되어 있지 않음
-- 라이브 코딩에서 k6를 CI에 추가하는 과정 시연 예정
+- `.github/workflows/main.yml` 에 k6 부하 테스트를 추가해 보겠습니다.
+- 아래 코드를 추가합니다.
+
+```yaml
+load-test:
+  runs-on: ubuntu-latest
+
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Initialize database
+      run: |
+        python init_db.py
+
+    - name: Install k6
+      run: |
+        sudo gpg -k
+        sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+        echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+        sudo apt-get update
+        sudo apt-get install k6
+
+    - name: Start FastAPI server
+      run: |
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+        sleep 5  # 서버가 시작될 때까지 대기
+
+    - name: Run k6 load test on slow endpoint
+      run: |
+        k6 run k6-test.js -e BASE_URL=http://127.0.0.1:8000
+```
 
 ## 🛠️ 기술 스택
 
