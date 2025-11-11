@@ -68,4 +68,4 @@ jobs:
 
       - name: Run k6 load test on slow endpoint
         run: |
-          k6 run k6-test.js -e BASE_URL=http://127.0.0.1:8000
+          k6 run k6test.js -e BASE_URL=http://127.0.0.1:8000
